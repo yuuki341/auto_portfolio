@@ -2,7 +2,10 @@ import math
 import numpy as np
 import scipy.stats as sps
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-
+import random
+from gurobipy import Model, quicksum, GRB, multidict
+from scipy.stats import norm
+import csv
 
 def evaluate(prediction, ground_truth, mask, report=False):
     assert ground_truth.shape == prediction.shape, 'shape mis-match'
@@ -85,4 +88,87 @@ def evaluate(prediction, ground_truth, mask, report=False):
     performance['btl'] = bt_long
     # performance['btl5'] = bt_long5
     # performance['btl10'] = bt_long10
+    return performance
+
+def _markowitz(alpha,I, std,sigma,r):
+    """markowitz -- simple markowitz model for portfolio optimization.
+    Parameters:
+        - I: set of items
+        - std[i]: standard deviation of item i
+        - sigma[i,j]: covariance of item i and j
+        - r[i]: revenue of item i
+    Returns a model, ready to be solved.
+    """
+    model = Model("portfolio")
+    x = model.addMVar(len(I))
+    
+    portfolio_risk = x @ sigma @ x
+    model.setObjective(portfolio_risk, GRB.MINIMIZE)
+    model.addConstr( x.sum() == 1, 'budget')
+    model.addConstr( r @ x >= alpha)
+    model.__data = x
+    return model
+
+"""
+平均収益率が高い順にソートして、上位n個出力
+"""
+def get_top_n_stock(num,stock_sample):
+    mean_revenue_list = np.mean(stock_sample,axis=1)
+    mean_revenue_sort_index = np.argsort(mean_revenue_list)
+    top_n_list = np.zeros(num,dtype=float)
+    top_n_list_index = np.zeros(num,dtype=int)
+    for i in range(num):
+        max_n = mean_revenue_sort_index[-1 * (i + 1)]
+        top_n_list_index[i] = max_n
+        top_n_list[i] = mean_revenue_list[max_n]
+    return top_n_list, top_n_list_index
+
+"""
+標準偏差と共分散を計算
+"""
+def cal_std_cov(top_n,stock_sample,max_n_list,max_n_list_index):
+    rev_stock_sample = []
+    for i in range(top_n):
+        rev_i = max_n_list_index[i]
+        rev_stock_sample.append(stock_sample[rev_i])
+    rev_stock_sample = np.array(rev_stock_sample)
+
+    std_list = np.std(rev_stock_sample, axis=1)  
+    sigma = np.cov(rev_stock_sample)
+    return std_list, sigma
+
+def model_const(alpha, num, max_n_list, std_list, sigma):
+    model_weight = np.zeros(num, dtype=float)
+
+    I = list(range(num))
+    #エラーにならないように
+    if max_n_list[0] < alpha - 1:
+        alpha = max_n_list[0] + 1
+
+    model = _markowitz(alpha - 1 , I, std_list, sigma, max_n_list)
+    model.optimize()
+
+    x = model.__data
+    EPS = 1.0e-6
+    for i in I:
+        model_weight[i] = x[i].X
+    return model_weight
+
+def evaluate_portfolio(performance, prediction, ground_truth, topn, topn_weight,fname, report=False):
+    bt_longn = 0
+    #テスト日分の評価
+    with open(f'./result/{fname}.csv', 'w') as f:
+        writer = csv.writer(f)
+        for i in range(prediction.shape[1]):
+            # back testing on top n
+            real_ret_rat_topn = 0
+            weight_index = 0
+            #bt_longn = 0
+            for pre in topn[:,i]:
+                bt_longn += ground_truth[pre][i] * topn_weight[weight_index][i]
+                #print(ground_truth[pre][i], topn_weight[weight_index][i])
+                #print(prediction[pre][i])
+                weight_index += 1
+            writer.writerow([float(bt_longn)])
+        performance['bt_portfolio'] = bt_longn
     return performance

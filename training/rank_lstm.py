@@ -5,6 +5,8 @@ import os
 import random
 import tensorflow as tf
 from time import time
+import csv
+
 try:
     from tensorflow.python.ops.nn_ops import leaky_relu
 except ImportError:
@@ -19,7 +21,7 @@ except ImportError:
             return math_ops.maximum(alpha * features, features)
 
 from load_data import load_EOD_data
-from evaluator import evaluate
+from evaluator import evaluate, get_top_n_stock, model_const, cal_std_cov, evaluate_portfolio
 
 class RankLSTM:
     def __init__(self, data_path, market_name, tickers_fname, parameters,
@@ -31,7 +33,7 @@ class RankLSTM:
         self.tickers = np.genfromtxt(os.path.join(data_path, '..', tickers_fname),
                                      dtype=str, delimiter='\t', skip_header=False)
         ### DEBUG
-        # self.tickers = self.tickers[0: 10]
+        #self.tickers = self.tickers[0: 10]
         print('#tickers selected:', len(self.tickers))
         self.eod_data, self.mask_data, self.gt_data, self.price_data = \
             load_EOD_data(data_path, market_name, self.tickers, steps)
@@ -48,6 +50,8 @@ class RankLSTM:
         self.test_index = 1008
         self.trade_dates = self.mask_data.shape[1]
         self.fea_dim = 5
+        self.mcdrop_num = args.drop_num
+        self.mcdrop_p = args.drop_ratio
 
         self.gpu = gpu
 
@@ -76,6 +80,11 @@ class RankLSTM:
         with tf.device(device_name):
             tf.reset_default_graph()
 
+            seed = 0
+            random.seed(seed)
+            np.random.seed(seed)
+            tf.set_random_seed(seed)
+
             ground_truth = tf.placeholder(tf.float32, [self.batch_size, 1])
             mask = tf.placeholder(tf.float32, [self.batch_size, 1])
             feature = tf.placeholder(tf.float32,
@@ -93,7 +102,7 @@ class RankLSTM:
                 lstm_cell, feature, dtype=tf.float32,
                 initial_state=initial_state
             )
-
+            outputs = tf.nn.dropout(outputs,self.mcdrop_p)
             seq_emb = outputs[:, -1, :]
             # One hidden layer
             prediction = tf.layers.dense(
@@ -105,32 +114,17 @@ class RankLSTM:
             reg_loss = tf.losses.mean_squared_error(
                 ground_truth, return_ratio, weights=mask
             )
-            pre_pw_dif = tf.subtract(
-                tf.matmul(return_ratio, all_one, transpose_b=True),
-                tf.matmul(all_one, return_ratio, transpose_b=True)
-            )
-            gt_pw_dif = tf.subtract(
-                tf.matmul(all_one, ground_truth, transpose_b=True),
-                tf.matmul(ground_truth, all_one, transpose_b=True)
-            )
-            mask_pw = tf.matmul(mask, mask, transpose_b=True)
-            rank_loss = tf.reduce_mean(
-                tf.nn.relu(
-                    tf.multiply(
-                        tf.multiply(pre_pw_dif, gt_pw_dif),
-                        mask_pw
-                    )
-                )
-            )
-            loss = reg_loss + tf.cast(self.parameters['alpha'], tf.float32) * \
-                              rank_loss
 
             optimizer = tf.train.AdamOptimizer(
                 learning_rate=self.parameters['lr']
-            ).minimize(loss)
+            ).minimize(reg_loss)
+
+            avg_loss = tf.summary.scalar("loss",loss)
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
+
+        writer = tf.summary.FileWriter('./tensorboard_sample', sess.graph)
 
         best_valid_pred = np.zeros(
             [len(self.tickers), self.test_index - self.valid_index],
@@ -185,9 +179,10 @@ class RankLSTM:
                     ground_truth: gt_batch,
                     base_price: price_batch
                 }
-                cur_loss, cur_reg_loss, cur_rank_loss, batch_out = \
-                    sess.run((loss, reg_loss, rank_loss, optimizer),
+                [train_summary,(cur_loss, cur_reg_loss, cur_rank_loss, batch_out )]= \
+                    sess.run([avg_loss,(loss, reg_loss, rank_loss, optimizer)],
                              feed_dict)
+                writer.add_summary(train_summary,j)
                 tra_loss += cur_loss
                 tra_reg_loss += cur_reg_loss
                 tra_rank_loss += cur_rank_loss
@@ -264,6 +259,14 @@ class RankLSTM:
                 [len(self.tickers), self.trade_dates - self.test_index],
                 dtype=float
             )
+            cur_test_topn_index = np.zeros(
+                [args.num, self.trade_dates - self.test_index],
+                dtype=int
+            )
+            cur_test_topn_weight = np.zeros(
+                [args.num, self.trade_dates - self.test_index],
+                dtype=float
+            )
             test_loss = 0.0
             test_reg_loss = 0.0
             test_rank_loss = 0.0
@@ -279,9 +282,30 @@ class RankLSTM:
                     ground_truth: gt_batch,
                     base_price: price_batch
                 }
-                cur_loss, cur_reg_loss, cur_rank_loss, cur_semb, cur_rr = \
-                    sess.run((loss, reg_loss, rank_loss, seq_emb,
-                              return_ratio), feed_dict)
+                if i == self.epochs - 1:
+                    #最終エポックdropoutを実行して、それぞれのtickerのdropout分のデータを集める
+                    for num in range(self.mcdrop_num):
+                        [test_summary,(cur_loss, cur_reg_loss, cur_rank_loss, cur_semb, cur_rr)] = \
+                            sess.run([avg_loss,(loss, reg_loss, rank_loss, seq_emb,
+                                    return_ratio)], feed_dict)
+                        if num == 0:
+                            concat_dropnum_rr = copy.copy(cur_rr)
+                        else:
+                            concat_dropnum_rr = np.concatenate([concat_dropnum_rr,cur_rr],1)
+                    days = cur_offset - (self.test_index - self.parameters['seq'] - self.steps + 1)
+                    #topnのリストを求める
+                    top_n_list, top_n_list_index = get_top_n_stock(args.num, concat_dropnum_rr)
+                    #標準偏差、共分散を求める
+                    std_list, sigma = cal_std_cov(args.num , concat_dropnum_rr, top_n_list, top_n_list_index)
+                    #それぞれの株式の割合を求める
+                    model_weight = model_const(args.threshold_alpha, args.num, top_n_list, std_list, sigma)
+                    #np.savetxt(f'../sample/mcdropout_day{days}.csv', concat_dropnum_rr, delimiter=',')
+                else:
+                    [test_summary,(cur_loss, cur_reg_loss, cur_rank_loss, cur_semb, cur_rr)] = \
+                            sess.run([avg_loss,(loss, reg_loss, rank_loss, seq_emb,
+                                    return_ratio)], feed_dict)
+                    concat_dropnum_rr = copy.copy(cur_rr)
+                writer.add_summary(test_summary)
 
                 test_loss += cur_loss
                 test_reg_loss += cur_reg_loss
@@ -290,7 +314,8 @@ class RankLSTM:
                 cur_test_pred[:, cur_offset - (self.test_index -
                                                self.parameters['seq'] -
                                                self.steps + 1)] = \
-                    copy.copy(cur_rr[:, 0])
+                    copy.copy(np.mean(concat_dropnum_rr,axis=1))
+                    #copy.copy(cur_rr[:, 0])
                 cur_test_gt[:, cur_offset - (self.test_index -
                                              self.parameters['seq'] -
                                              self.steps + 1)] = \
@@ -299,12 +324,34 @@ class RankLSTM:
                                                self.parameters['seq'] -
                                                self.steps + 1)] = \
                     copy.copy(mask_batch[:, 0])
+                if i == self.epochs - 1:
+                    cur_test_topn_index[:, cur_offset - (self.test_index -
+                                             self.parameters['seq'] -
+                                             self.steps + 1)] = \
+                        copy.copy(top_n_list_index[:])
+                    cur_test_topn_weight[:, cur_offset - (self.test_index -
+                                             self.parameters['seq'] -
+                                             self.steps + 1)] = \
+                        copy.copy(model_weight[:])
+                    #print(model_weight)
             # print('----------')
             print('Test MSE:',
                   test_loss / (self.trade_dates - self.test_index),
                   test_reg_loss / (self.trade_dates - self.test_index),
                   test_rank_loss / (self.trade_dates - self.test_index))
             cur_test_perf = evaluate(cur_test_pred, cur_test_gt, cur_test_mask)
+            if i == self.epochs - 1:
+                cur_test_perf = evaluate_portfolio(cur_test_perf, cur_test_pred, cur_test_gt, cur_test_topn_index, cur_test_topn_weight, fname=args.file_name)
+                """
+                with open(f'./weight.csv', 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(cur_test_topn_weight)
+
+                with open(f'./weight_index.csv', 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(cur_test_topn_index)
+                """
+
             print('\t Test performance:', cur_test_perf)
             # if cur_valid_perf['mse'] < best_valid_perf['mse']:
             if val_loss / (self.test_index - self.valid_index) < \
@@ -355,6 +402,17 @@ if __name__ == '__main__':
     parser.add_argument('-a', default=1,
                         help='alpha, the weight of ranking loss')
     parser.add_argument('-g', '--gpu', type=int, default=0, help='use gpu')
+    parser.add_argument('-n', '--num',help='Top n stock',
+                        default=5,type = int)
+    parser.add_argument('-ta', '--threshold_alpha',help='acceptance threshold',
+                        default=1.001,type= float )
+    parser.add_argument('-f', '--file_name',help='decide final csv file name',
+                        default="data")
+    parser.add_argument('-d', '--drop_num',help='number of dropout',
+                        default=100,type = int)
+    parser.add_argument('-d_p', '--drop_ratio',help='ratio of dropout',
+                        default=0.8,type = float)
+
     args = parser.parse_args()
 
     if args.t is None:
@@ -371,6 +429,6 @@ if __name__ == '__main__':
         market_name=args.m,
         tickers_fname=args.t,
         parameters=parameters,
-        steps=1, epochs=50, batch_size=None, gpu=args.gpu
+        steps=1, epochs=10, batch_size=None, gpu=args.gpu
     )
     pred_all = rank_LSTM.train()
