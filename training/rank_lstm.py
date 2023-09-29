@@ -61,7 +61,7 @@ class RankLSTM:
         seq_len = self.parameters['seq']
         mask_batch = self.mask_data[:, offset: offset + seq_len + self.steps]
         mask_batch = np.min(mask_batch, axis=1)
-        return self.eod_data[:, offset:offset + seq_len, :], \
+        return self.eod_data[:, offset:offset + seq_len, -1], \
                np.expand_dims(mask_batch, axis=1), \
                np.expand_dims(
                    self.price_data[:, offset + seq_len - 1], axis=1
@@ -88,7 +88,7 @@ class RankLSTM:
             ground_truth = tf.placeholder(tf.float32, [self.batch_size, 1])
             mask = tf.placeholder(tf.float32, [self.batch_size, 1])
             feature = tf.placeholder(tf.float32,
-                [self.batch_size, self.parameters['seq'], self.fea_dim])
+                [self.batch_size, self.parameters['seq'],self.batch_size])
             base_price = tf.placeholder(tf.float32, [self.batch_size, 1])
             all_one = tf.ones([self.batch_size, 1], dtype=tf.float32)
 
@@ -111,13 +111,13 @@ class RankLSTM:
             )
 
             return_ratio = tf.div(tf.subtract(prediction, base_price), base_price)
-            reg_loss = tf.losses.mean_squared_error(
+            loss = tf.losses.mean_squared_error(
                 ground_truth, return_ratio, weights=mask
             )
 
             optimizer = tf.train.AdamOptimizer(
                 learning_rate=self.parameters['lr']
-            ).minimize(reg_loss)
+            ).minimize(loss)
 
             avg_loss = tf.summary.scalar("loss",loss)
 
@@ -167,8 +167,6 @@ class RankLSTM:
             t1 = time()
             np.random.shuffle(batch_offsets)
             tra_loss = 0.0
-            tra_reg_loss = 0.0
-            tra_rank_loss = 0.0
             for j in range(self.valid_index - self.parameters['seq'] -
                            self.steps + 1):
                 eod_batch, mask_batch, price_batch, gt_batch = self.get_batch(
@@ -179,17 +177,13 @@ class RankLSTM:
                     ground_truth: gt_batch,
                     base_price: price_batch
                 }
-                [train_summary,(cur_loss, cur_reg_loss, cur_rank_loss, batch_out )]= \
-                    sess.run([avg_loss,(loss, reg_loss, rank_loss, optimizer)],
+                [train_summary,(cur_loss, batch_out )]= \
+                    sess.run([avg_loss,(loss, optimizer)],
                              feed_dict)
                 writer.add_summary(train_summary,j)
                 tra_loss += cur_loss
-                tra_reg_loss += cur_reg_loss
-                tra_rank_loss += cur_rank_loss
             print('Train Loss:',
-                  tra_loss / (self.valid_index - self.parameters['seq'] - self.steps + 1),
-                  tra_reg_loss / (self.valid_index - self.parameters['seq'] - self.steps + 1),
-                  tra_rank_loss / (self.valid_index - self.parameters['seq'] - self.steps + 1))
+                  tra_loss / (self.valid_index - self.parameters['seq'] - self.steps + 1))
 
             # test on validation set
             cur_valid_pred = np.zeros(
@@ -205,8 +199,6 @@ class RankLSTM:
                 dtype=float
             )
             val_loss = 0.0
-            val_reg_loss = 0.0
-            val_rank_loss = 0.0
             for cur_offset in range(
                 self.valid_index - self.parameters['seq'] - self.steps + 1,
                 self.test_index - self.parameters['seq'] - self.steps + 1
@@ -219,13 +211,11 @@ class RankLSTM:
                     ground_truth: gt_batch,
                     base_price: price_batch
                 }
-                cur_loss, cur_reg_loss, cur_rank_loss, cur_semb, cur_rr, = \
-                    sess.run((loss, reg_loss, rank_loss, seq_emb,
+                cur_loss, cur_semb, cur_rr, = \
+                    sess.run((loss, seq_emb,
                               return_ratio), feed_dict)
 
                 val_loss += cur_loss
-                val_reg_loss += cur_reg_loss
-                val_rank_loss += cur_rank_loss
                 cur_valid_pred[:, cur_offset - (self.valid_index -
                                                 self.parameters['seq'] -
                                                 self.steps + 1)] = \
@@ -239,9 +229,7 @@ class RankLSTM:
                                                 self.steps + 1)] = \
                     copy.copy(mask_batch[:, 0])
             print('Valid MSE:',
-                  val_loss / (self.test_index - self.valid_index),
-                  val_reg_loss / (self.test_index - self.valid_index),
-                  val_rank_loss / (self.test_index - self.valid_index))
+                  val_loss / (self.test_index - self.valid_index))
             cur_valid_perf = evaluate(cur_valid_pred, cur_valid_gt,
                                       cur_valid_mask)
             print('\t Valid preformance:', cur_valid_perf)
@@ -268,8 +256,6 @@ class RankLSTM:
                 dtype=float
             )
             test_loss = 0.0
-            test_reg_loss = 0.0
-            test_rank_loss = 0.0
             for cur_offset in range(
                 self.test_index - self.parameters['seq'] - self.steps + 1,
                 self.trade_dates - self.parameters['seq'] - self.steps + 1
@@ -285,8 +271,8 @@ class RankLSTM:
                 if i == self.epochs - 1:
                     #最終エポックdropoutを実行して、それぞれのtickerのdropout分のデータを集める
                     for num in range(self.mcdrop_num):
-                        [test_summary,(cur_loss, cur_reg_loss, cur_rank_loss, cur_semb, cur_rr)] = \
-                            sess.run([avg_loss,(loss, reg_loss, rank_loss, seq_emb,
+                        [test_summary,(cur_loss,cur_semb, cur_rr)] = \
+                            sess.run([avg_loss,(loss, seq_emb,
                                     return_ratio)], feed_dict)
                         if num == 0:
                             concat_dropnum_rr = copy.copy(cur_rr)
@@ -301,15 +287,13 @@ class RankLSTM:
                     model_weight = model_const(args.threshold_alpha, args.num, top_n_list, std_list, sigma)
                     #np.savetxt(f'../sample/mcdropout_day{days}.csv', concat_dropnum_rr, delimiter=',')
                 else:
-                    [test_summary,(cur_loss, cur_reg_loss, cur_rank_loss, cur_semb, cur_rr)] = \
-                            sess.run([avg_loss,(loss, reg_loss, rank_loss, seq_emb,
+                    [test_summary,(cur_loss, cur_loss, cur_rank_loss, cur_semb, cur_rr)] = \
+                            sess.run([avg_loss,(loss, loss, rank_loss, seq_emb,
                                     return_ratio)], feed_dict)
                     concat_dropnum_rr = copy.copy(cur_rr)
                 writer.add_summary(test_summary)
 
                 test_loss += cur_loss
-                test_reg_loss += cur_reg_loss
-                test_rank_loss += cur_rank_loss
 
                 cur_test_pred[:, cur_offset - (self.test_index -
                                                self.parameters['seq'] -
@@ -336,9 +320,7 @@ class RankLSTM:
                     #print(model_weight)
             # print('----------')
             print('Test MSE:',
-                  test_loss / (self.trade_dates - self.test_index),
-                  test_reg_loss / (self.trade_dates - self.test_index),
-                  test_rank_loss / (self.trade_dates - self.test_index))
+                  test_loss / (self.trade_dates - self.test_index))
             cur_test_perf = evaluate(cur_test_pred, cur_test_gt, cur_test_mask)
             if i == self.epochs - 1:
                 cur_test_perf = evaluate_portfolio(cur_test_perf, cur_test_pred, cur_test_gt, cur_test_topn_index, cur_test_topn_weight, fname=args.file_name)
