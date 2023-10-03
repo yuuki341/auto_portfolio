@@ -28,7 +28,7 @@ class mcLSTM:
         self.tickers = np.genfromtxt(os.path.join(data_path, '..', tickers_fname),
                                      dtype=str, delimiter='\t', skip_header=False)
         ### DEBUG
-        #self.tickers = self.tickers[0: 5]
+        #self.tickers = self.tickers[0: 10]
         print('#tickers selected:', len(self.tickers))
         #self.eod_data(1026,1245,5):(tickers,日数,特徴量) 全データ
         #self.mask_data(1026,1245):(tickers,日数) 株価欠けているデータ
@@ -89,9 +89,13 @@ class mcLSTM:
         train_x = train_x.transpose(0,2,1)
         val_x = val_x.transpose(0,2,1)
         test_x = test_x.transpose(0,2,1)
+        p = np.random.permutation(len(train_x))
+        train_x = train_x[p]
+        train_y = train_y[p]
 
         #モデルの作成
         inputs = Input(shape=(self.parameters['seq'], len(self.tickers)))
+        #lstm = LSTM(self.parameters['unit'], return_sequences=True)(inputs)
         lstm = LSTM(self.parameters['unit'], return_sequences=False)(inputs)
         drop = Dropout(self.mcdrop_p)(lstm,training=True)
         dense = Dense(len(self.tickers))(drop)
@@ -129,8 +133,11 @@ class mcLSTM:
             np.savetxt(f'../sample/mcdropout_day{day}.csv', mc_drop_list[day], delimiter=',')
             top_n_list, top_n_list_index = get_top_n_stock(self.top_num, mc_drop_list[day])
             top_n_list_index_test_days[day,:] = top_n_list_index
-            std_list, sigma = cal_std_cov(self.top_num, mc_drop_list[day], top_n_list, top_n_list_index)
-            day_weight[day,:] = model_const(self.threshold_alpha, self.top_num, top_n_list_index, std_list, sigma)
+            if self.top_num != 1:
+                std_list, sigma = cal_std_cov(self.top_num, mc_drop_list[day], top_n_list, top_n_list_index)
+                day_weight[day,:] = model_const(self.threshold_alpha, self.top_num, top_n_list, std_list, sigma)
+            else:
+                day_weight[day,:] = 1
         evaluate_portfolio(test_y_pred, test_y, top_n_list_index_test_days, day_weight, fname=args.f)
 
 if __name__ == '__main__':
@@ -173,6 +180,6 @@ if __name__ == '__main__':
         market_name=args.m,
         tickers_fname=args.t,
         parameters=parameters,
-        steps=1, epochs=6, batch_size=args.b
+        steps=1, epochs=5, batch_size=args.b
     )
     pred_all = mc_LSTM.train()
