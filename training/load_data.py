@@ -34,6 +34,10 @@ def load_EOD_data(data_path, market_name, tickers, steps=1):
                 ground_truth[index][row] = \
                     (single_EOD[row][-1] - single_EOD[row - steps][-1]) / \
                     single_EOD[row - steps][-1]
+                """
+                ground_truth[index][row] = \
+                    single_EOD[row][-1] / single_EOD[row - steps][-1] 
+                """
             for col in range(single_EOD.shape[1]):
                 if abs(single_EOD[row][col] + 1234) < 1e-8:
                     single_EOD[row][col] = 1.1

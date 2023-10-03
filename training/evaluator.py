@@ -154,21 +154,18 @@ def model_const(alpha, num, max_n_list, std_list, sigma):
         model_weight[i] = x[i].X
     return model_weight
 
-def evaluate_portfolio(performance, prediction, ground_truth, topn, topn_weight,fname, report=False):
+def evaluate_portfolio(prediction, ground_truth, topn, topn_weight,fname, report=False):
     bt_longn = 0
     #テスト日分の評価
     with open(f'./result/{fname}.csv', 'w') as f:
         writer = csv.writer(f)
-        for i in range(prediction.shape[1]):
+        for i in range(prediction.shape[0]):
             # back testing on top n
             real_ret_rat_topn = 0
             weight_index = 0
             #bt_longn = 0
-            for pre in topn[:,i]:
-                bt_longn += ground_truth[pre][i] * topn_weight[weight_index][i]
-                #print(ground_truth[pre][i], topn_weight[weight_index][i])
-                #print(prediction[pre][i])
+            for pre in topn[i,:]:
+                bt_longn += ground_truth[i,pre] * topn_weight[i, weight_index]
                 weight_index += 1
             writer.writerow([float(bt_longn)])
-        performance['bt_portfolio'] = bt_longn
-    return performance
+    return bt_longn
