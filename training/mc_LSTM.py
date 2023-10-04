@@ -63,27 +63,27 @@ class mcLSTM:
         #データの整形
         train,val,test = np.split(self.gt_data,[self.valid_index,self.test_index],axis=1)
         train_x = np.zeros(
-            [len(train[0]) - (self.parameters['seq'] + 1), len(self.tickers) , self.parameters['seq']],
+            [len(train[0]) - self.parameters['seq'], len(self.tickers) , self.parameters['seq']],
             dtype=float)
         train_y = np.zeros(
-            [len(train[0]) - (self.parameters['seq'] + 1), len(self.tickers)])
+            [len(train[0]) - self.parameters['seq'], len(self.tickers)])
         val_x = np.zeros(
-            [len(val[0]) - (self.parameters['seq'] + 1), len(self.tickers) , self.parameters['seq']],
+            [len(val[0]) - self.parameters['seq'], len(self.tickers) , self.parameters['seq']],
             dtype=float)
         val_y = np.zeros(
-            [len(val[0]) - (self.parameters['seq'] + 1), len(self.tickers)])
+            [len(val[0]) - self.parameters['seq'], len(self.tickers)])
         test_x = np.zeros(
-            [len(test[0]) - (self.parameters['seq'] + 1), len(self.tickers) , self.parameters['seq']],
+            [len(test[0]) - self.parameters['seq'], len(self.tickers) , self.parameters['seq']],
             dtype=float)
         test_y = np.zeros(
-            [len(test[0]) - (self.parameters['seq'] + 1), len(self.tickers)])
-        for i in range(len(train[0]) - (self.parameters['seq'] + 1)):
+            [len(test[0]) - self.parameters['seq'], len(self.tickers)])
+        for i in range(len(train[0]) - self.parameters['seq']):
             train_x[i] += train[:,i : i + self.parameters['seq']]
             train_y[i] += train[:,i + self.parameters['seq']]
-        for i in range(len(val[0]) - (self.parameters['seq'] + 1)):
+        for i in range(len(val[0]) - self.parameters['seq']):
             val_x[i] += val[:,i : i + self.parameters['seq']]
             val_y[i] += val[:,i + self.parameters['seq']]
-        for i in range(len(test[0]) - (self.parameters['seq'] + 1)):
+        for i in range(len(test[0]) - self.parameters['seq']):
             test_x[i] += test[:,i : i + self.parameters['seq']]
             test_y[i] += test[:,i + self.parameters['seq']]
         train_x = train_x.transpose(0,2,1)
@@ -95,7 +95,6 @@ class mcLSTM:
 
         #モデルの作成
         inputs = Input(shape=(self.parameters['seq'], len(self.tickers)))
-        #lstm = LSTM(self.parameters['unit'], return_sequences=True)(inputs)
         lstm = LSTM(self.parameters['unit'], return_sequences=False)(inputs)
         drop = Dropout(self.mcdrop_p)(lstm,training=True)
         dense = Dense(len(self.tickers))(drop)
@@ -166,6 +165,8 @@ if __name__ == '__main__':
                         default="data")
     parser.add_argument('-b',help='number of batchsize',
                         default=50,type=int)
+    parser.add_argument('-e',help='number of epochs',
+                        default=50,type=int)
 
     args = parser.parse_args()
 
@@ -180,6 +181,6 @@ if __name__ == '__main__':
         market_name=args.m,
         tickers_fname=args.t,
         parameters=parameters,
-        steps=1, epochs=5, batch_size=args.b
+        steps=1, epochs=args.e, batch_size=args.b
     )
     pred_all = mc_LSTM.train()
