@@ -25,12 +25,12 @@ def read_stock_price(args):
 
 def main(args):
     stock_sample = read_stock_price(args)
-    max_n_list, max_n_list_index = get_top_n_stock(args.num, stock_sample)
-    std_list, sigma = cal_std_cov(args.num, stock_sample, max_n_list, max_n_list_index)
+    top_n_list, top_n_list_index = get_top_n_stock(args.num, stock_sample)
+    std_list, sigma = cal_std_cov(args.num, stock_sample, top_n_list, top_n_list_index)
     model_weight = model_const(args.alpha, args.num, top_n_list, std_list, sigma)
-    eod_data, mask_data, gt_data, price_data = \
-            load_EOD_data(data_path, market_name, self.tickers, steps)
-    evaluate_portfolio(cur_test_pred, cur_test_gt, cur_test_topn_index, model_weight, fname=args.file_name)
+    #eod_data, mask_data, gt_data, price_data = \
+    #        load_EOD_data(data_path, market_name, self.tickers, steps)
+    #evaluate_portfolio(cur_test_pred, cur_test_gt, cur_test_topn_index, model_weight, fname=args.file_name)
 
 
 if __name__ == '__main__':

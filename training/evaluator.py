@@ -3,7 +3,7 @@ import numpy as np
 import scipy.stats as sps
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import random
-from gurobipy import Model, quicksum, GRB, multidict
+from gurobipy import Model, GRB
 from scipy.stats import norm
 import csv
 

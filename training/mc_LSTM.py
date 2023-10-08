@@ -62,6 +62,7 @@ class mcLSTM:
 
         #データの整形
         train,val,test = np.split(self.gt_data,[self.valid_index,self.test_index],axis=1)
+        #train,val,test = np.split(self.eod_data[:,:,-1],[self.valid_index,self.test_index],axis=1)
         train_x = np.zeros(
             [len(train[0]) - self.parameters['seq'], len(self.tickers) , self.parameters['seq']],
             dtype=float)
@@ -80,12 +81,15 @@ class mcLSTM:
         for i in range(len(train[0]) - self.parameters['seq']):
             train_x[i] += train[:,i : i + self.parameters['seq']]
             train_y[i] += train[:,i + self.parameters['seq']]
+            #train_y[i] += self.gt_data[:,i + self.parameters['seq']]
         for i in range(len(val[0]) - self.parameters['seq']):
             val_x[i] += val[:,i : i + self.parameters['seq']]
             val_y[i] += val[:,i + self.parameters['seq']]
+            #val_y[i] += self.gt_data[:,self.valid_index + i + self.parameters['seq']]
         for i in range(len(test[0]) - self.parameters['seq']):
             test_x[i] += test[:,i : i + self.parameters['seq']]
             test_y[i] += test[:,i + self.parameters['seq']]
+            #test_y[i] += self.gt_data[:,self.test_index + i + self.parameters['seq']]
         train_x = train_x.transpose(0,2,1)
         val_x = val_x.transpose(0,2,1)
         test_x = test_x.transpose(0,2,1)
@@ -95,12 +99,19 @@ class mcLSTM:
 
         #モデルの作成
         inputs = Input(shape=(self.parameters['seq'], len(self.tickers)))
-        lstm = LSTM(self.parameters['unit'], return_sequences=False)(inputs)
+        lstm = LSTM(self.parameters['unit'], return_sequences=True)(inputs)
+        lstm = Dropout(self.mcdrop_p)(lstm,training=True)
+        lstm = LSTM(self.parameters['unit'], return_sequences=True)(lstm)
+        lstm = Dropout(self.mcdrop_p)(lstm,training=True)
+        lstm = LSTM(self.parameters['unit'], return_sequences=True)(lstm)
+        lstm = Dropout(self.mcdrop_p)(lstm,training=True)
+        lstm = LSTM(self.parameters['unit'], return_sequences=False)(lstm)
         drop = Dropout(self.mcdrop_p)(lstm,training=True)
         dense = Dense(len(self.tickers))(drop)
         model =  Model(inputs, dense)
         model.compile(loss='mse', optimizer=Adam(lr=self.parameters['lr']), metrics = ['mse'])
         model.summary()
+        #tf.keras.utils.plot_model(model, show_shapes=True)
 
         #モデルの訓練・検証
         hist = model.fit(train_x, train_y, epochs=self.epochs, validation_data=(val_x, val_y), batch_size=self.batch_size,verbose=0)
@@ -114,7 +125,7 @@ class mcLSTM:
         #plt.ylim( 0.0005, 0.0006)
         #plt.ylim( 0, 0.05)
         plt.legend()
-        #fig_name = f"seq{args.l}_batch{args.b}_unit{args.u}_{args.f}.png"
+        fig_name = f"fig_data5/{args.m}_{args.f}_seq{args.l}_dropr{args.drop_ratio}_unit{args.u}.png"
         fig_name = f"fig.png"
         plt.savefig(fig_name)
 
@@ -145,9 +156,9 @@ if __name__ == '__main__':
                         default='../data/2013-01-01')
     parser.add_argument('-m', help='market name', default='NASDAQ')
     parser.add_argument('-t', help='fname for selected tickers')
-    parser.add_argument('-l', default=10,
+    parser.add_argument('-l', default=50,
                         help='length of historical sequence for feature')
-    parser.add_argument('-u', default=2048,
+    parser.add_argument('-u', default=256,
                         help='number of hidden units in lstm')
     parser.add_argument('-s', default=1,
                         help='steps to make prediction')
@@ -158,7 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('-ta', '--threshold_alpha',help='acceptance threshold',
                         default=1.001,type= float )
     parser.add_argument('-d', '--drop_num',help='number of dropout',
-                        default=10,type = int)
+                        default=1000,type = int)
     parser.add_argument('-d_p', '--drop_ratio',help='ratio of dropout',
                         default=0.2,type = float)
     parser.add_argument('-f', help='decide final csv file name',
@@ -166,7 +177,7 @@ if __name__ == '__main__':
     parser.add_argument('-b',help='number of batchsize',
                         default=50,type=int)
     parser.add_argument('-e',help='number of epochs',
-                        default=50,type=int)
+                        default=15,type=int)
 
     args = parser.parse_args()
 
