@@ -1,0 +1,13 @@
+data/
+preprocess/
+test_file/
+__pycache__/
+tensorboard_sample/
+sample*/
+*.out
+result/
+*.csv
+fig_data*/
+result*/
+search/
+sim_result/

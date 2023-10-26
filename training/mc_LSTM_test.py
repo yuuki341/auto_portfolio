@@ -15,7 +15,7 @@ from tensorflow.keras.layers import Dense, Activation, LSTM,Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import Input
 from load_data import load_EOD_data
-from evaluator import evaluate, get_top_n_stock, model_const, cal_std_cov, evaluate_portfolio,greedy
+from evaluator import evaluate, get_top_n_stock, model_const, cal_std_cov, evaluate_portfolio
 from sklearn.metrics import mean_squared_error
 
 class mcLSTM:
@@ -50,6 +50,7 @@ class mcLSTM:
         self.mcdrop_num = args.drop_num
         self.mcdrop_p = args.drop_ratio
         self.top_num = args.top_num
+        self.threshold_alpha = args.threshold_alpha
 
     # LSTMモデルを作成する関数
     def train(self):
@@ -128,40 +129,11 @@ class mcLSTM:
         plt.legend()
         #fig_name = f"result/{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.png"
         #fig_name = f"search/fig{args.m}_layer4_e{args.e}.png"
-        fig_name = f"result10/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_fig.png"
+        fig_name = f"result5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_{args.l}.png"
         plt.savefig(fig_name)
         val_graph = [np.min(hist.history['val_loss']),np.argmin(hist.history['val_loss'])]
-        txt_name = f"result10/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.txt"
+        txt_name = f"result5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_{args.l}.txt"
         np.savetxt(txt_name, val_graph, delimiter=',')
-
-        mc_drop_list = np.zeros([test_y.shape[0], len(self.tickers), self.mcdrop_num],dtype=float)
-        MSE_list = np.zeros([self.mcdrop_num])
-        #テストデータでの予測
-        for num in range(self.mcdrop_num):
-            test_y_pred = model.predict(test_x)
-            MSE = mean_squared_error(test_y_pred,test_y)
-            MSE_list[num] = MSE
-            print(MSE)
-            mc_drop_list[:,:,num] = test_y_pred
-            print(num,self.mcdrop_num)
-        #with open(f"result/MSE_{args.f}.csv", 'a') as f_handle:
-        #    np.savetxt(f_handle, [np.mean(MSE_list)])
-        day_weight = np.zeros([test_y.shape[0], self.top_num],dtype=float)
-        top_n_list_index_test_days = np.zeros([test_y.shape[0], self.top_num], dtype=int)
-        for day in range(len(mc_drop_list)):
-            #np.savetxt(f'../sample/mcdropout_day{day}.csv', mc_drop_list[day], delimiter=',')
-            #greedy(mc_drop_list[day])
-            top_n_list, top_n_list_index = get_top_n_stock(self.top_num, mc_drop_list[day])
-            top_n_list_index_test_days[day,:] = top_n_list_index
-            if self.top_num != 1:
-                std_list, sigma = cal_std_cov(self.top_num, mc_drop_list[day], top_n_list, top_n_list_index)               
-                day_weight[day,:] = model_const(self.top_num, top_n_list, std_list, sigma)
-                #day_weight[day,:] = ( 1 / self.top_num ) 
-            else:
-                day_weight[day,:] = 1
-        evaluate_portfolio(test_y_pred, test_y, top_n_list_index_test_days, day_weight, fname=args.f)
-        np.savetxt(f'./result10/{args.e}_{args.m}_{args.f}_top_n_index.csv', top_n_list_index_test_days, delimiter=',')
-        np.savetxt(f'./result10/{args.e}_{args.m}_{args.f}_top_n_weight.csv', day_weight, delimiter=',')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -179,6 +151,8 @@ if __name__ == '__main__':
                         help='learning rate')
     parser.add_argument('-n', '--top_num',help='Top n stock',
                         default=5,type = int)
+    parser.add_argument('-ta', '--threshold_alpha',help='acceptance threshold',
+                        default=1.001,type= float )
     parser.add_argument('-d', '--drop_num',help='number of dropout',
                         default=1000,type = int)
     parser.add_argument('-d_p', '--drop_ratio',help='ratio of dropout',

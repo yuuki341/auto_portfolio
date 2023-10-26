@@ -137,15 +137,14 @@ def cal_std_cov(top_n,stock_sample,max_n_list,max_n_list_index):
     sigma = np.cov(rev_stock_sample)
     return std_list, sigma
 
-def model_const(alpha, num, max_n_list, std_list, sigma):
+def model_const(num, max_n_list, std_list, sigma):
     model_weight = np.zeros(num, dtype=float)
 
     I = list(range(num))
     #エラーにならないように
-    if max_n_list[0] < alpha - 1:
-        alpha = max_n_list[0] + 1
+    ave_max_n_list = np.average(max_n_list[-1])
 
-    model = _markowitz(alpha - 1 , I, std_list, sigma, max_n_list)
+    model = _markowitz(ave_max_n_list, I, std_list, sigma, max_n_list)
     model.optimize()
 
     x = model.__data
@@ -157,7 +156,7 @@ def model_const(alpha, num, max_n_list, std_list, sigma):
 def evaluate_portfolio(prediction, ground_truth, topn, topn_weight,fname, report=False):
     bt_longn = 0
     #テスト日分の評価
-    with open(f'./result/{fname}.csv', 'w') as f:
+    with open(f'./result10/{fname}.csv', 'w') as f:
         writer = csv.writer(f)
         for i in range(prediction.shape[0]):
             # back testing on top n
@@ -169,3 +168,56 @@ def evaluate_portfolio(prediction, ground_truth, topn, topn_weight,fname, report
                 weight_index += 1
             writer.writerow([float(bt_longn)])
     return bt_longn
+
+def greedy_optimization(alpha, weight_num,sigma,r):
+    """
+        - sigma[i,j]: covariance of item i and j
+        - r[i]: revenue of item i
+        Returns a model, ready to be solved.
+    """
+    model = Model("portfolio")
+    x = model.addMVar(weight_num)
+    portfolio_risk = x @ sigma @ x
+    model.setObjective(portfolio_risk, GRB.MINIMIZE)
+    model.addConstr( x.sum() == 1, 'budget')
+    model.addConstr( r @ x >= alpha)
+    model.__data = x
+    return model
+
+def greedy(weight_max, mc_drop_list_day, mc_drop_num):
+    index_list = []
+    optimal_min = float('inf')
+    
+    #平均予測収益のベクトル
+    mean_list = np.mean(mc_drop_list_day,axis=1)
+    #予測収益の分散のベクトル
+    var_list = np.var(mc_drop_list_day,axis=1)
+    #二次計画問題の基準
+    standard = mean_list[mean_list>0].mean()
+    index_list.append(np.argmin(var_list))
+    for weight_num in range(2, weight_max + 1):
+        model_weight = np.zeros(weight_num, dtype=float)
+        index_min = 0
+        for i in range(mean_list.shape[0]):
+            if i in index_list:
+                continue
+            stock_sample_list_day = np.zeros((weight_num, mc_drop_num)) 
+            r = np.zeros(weight_num)
+            for j in range(weight_num - 1):
+                stock_sample_list_day[j,:] = mc_drop_list_day[index_list[j],:]
+                r[j] = mean_list[index_list[j]]
+            stock_sample_list_day[-1,:] = mc_drop_list_day[i,:]
+            sigma = np.cov(stock_sample_list_day)
+            r[-1] = mean_list[i]  
+            
+            model = greedy_optimization(standard, weight_num, sigma, r)
+            model.optimize()
+            x = model.__data
+            if optimal_min > model.ObjVal:
+                for j in range(weight_num):
+                    model_weight[j] = x[j].X
+                index_min = i
+                optimal_min = model.ObjVal
+        index_list.append(index_min)
+    
+    return index_list, model_weight

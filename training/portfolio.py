@@ -31,7 +31,7 @@ def main(args):
     #eod_data, mask_data, gt_data, price_data = \
     #        load_EOD_data(data_path, market_name, self.tickers, steps)
     #evaluate_portfolio(cur_test_pred, cur_test_gt, cur_test_topn_index, model_weight, fname=args.file_name)
-
+    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
