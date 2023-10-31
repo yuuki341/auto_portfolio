@@ -28,3 +28,15 @@ sequenceの長さ=20, dropoutの割合, Topnの数, 最適化の際の閾値, LS
 条件探し
 256,256,256,256
 l=50,u=256,d=1000,d_p=0.2,e=15ではない？
+
+
+総処理時間
+greedy:39分
+greedy_rev:2167.7384448051453
+top1_dropnum10000:2615.2012870311737
+top1_dropnum100000:25592.06289100647
+
+greedy_top5_fropnum10000 : 4893.662820100784
+greedy_top5_fropnum100000 : 28999.680920124054
+
+greedy_top5_fropnum10000_NYSE : 7401

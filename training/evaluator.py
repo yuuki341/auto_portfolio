@@ -156,7 +156,7 @@ def model_const(num, max_n_list, std_list, sigma):
 def evaluate_portfolio(prediction, ground_truth, topn, topn_weight,fname, report=False):
     bt_longn = 0
     #テスト日分の評価
-    with open(f'./result10/{fname}.csv', 'w') as f:
+    with open(f'./test5/{fname}.csv', 'w') as f:
         writer = csv.writer(f)
         for i in range(prediction.shape[0]):
             # back testing on top n
@@ -194,10 +194,21 @@ def greedy(weight_max, mc_drop_list_day, mc_drop_num):
     var_list = np.var(mc_drop_list_day,axis=1)
     #二次計画問題の基準
     standard = mean_list[mean_list>0].mean()
-    index_list.append(np.argmin(var_list))
+    #print(standard.shape)
+    #分散が最小なものを追加
+    stock_list_index = np.where(mean_list > standard)[0]
+    
+    var_min = float('inf')
+    for i in stock_list_index:
+        if var_min > var_list[i]:
+            var_min = var_list[i]
+            var_min_index = i
+    index_list.append(var_min_index)
+    
     for weight_num in range(2, weight_max + 1):
         model_weight = np.zeros(weight_num, dtype=float)
         index_min = 0
+        #for i in stock_list_index:
         for i in range(mean_list.shape[0]):
             if i in index_list:
                 continue
@@ -208,8 +219,8 @@ def greedy(weight_max, mc_drop_list_day, mc_drop_num):
                 r[j] = mean_list[index_list[j]]
             stock_sample_list_day[-1,:] = mc_drop_list_day[i,:]
             sigma = np.cov(stock_sample_list_day)
-            r[-1] = mean_list[i]  
-            
+            r[-1] = mean_list[i] 
+           
             model = greedy_optimization(standard, weight_num, sigma, r)
             model.optimize()
             x = model.__data
@@ -219,5 +230,4 @@ def greedy(weight_max, mc_drop_list_day, mc_drop_num):
                 index_min = i
                 optimal_min = model.ObjVal
         index_list.append(index_min)
-    
     return index_list, model_weight

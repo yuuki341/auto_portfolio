@@ -127,6 +127,7 @@ class mcLSTM:
         hist = model.fit(train_x, train_y, epochs=self.epochs, validation_data=(val_x, val_y), batch_size=self.batch_size,verbose=0)
 
         # 損失値(Loss)の遷移
+        """
         plt.plot(hist.history['loss'], label="train set")
         plt.plot(hist.history['val_loss'], label="val set")
         plt.title('model loss')
@@ -137,12 +138,12 @@ class mcLSTM:
         plt.legend()
         #fig_name = f"result/{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.png"
         #fig_name = f"search/fig{args.m}_layer4_e{args.e}.png"
-        fig_name = f"test5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_fig.png"
+        #fig_name = f"test5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_fig.png"
         plt.savefig(fig_name)
         val_graph = [np.min(hist.history['val_loss']),np.argmin(hist.history['val_loss'])]
-        txt_name = f"test5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.txt"
+        #txt_name = f"test5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.txt"
         np.savetxt(txt_name, val_graph, delimiter=',')
-
+        """
         mc_drop_list = np.zeros([test_y.shape[0], len(self.tickers), self.mcdrop_num],dtype=float)
         MSE_list = np.zeros([self.mcdrop_num])
         #テストデータでの予測
@@ -163,16 +164,11 @@ class mcLSTM:
         top_n_list_index_test_days = np.zeros([test_y.shape[0], self.top_num], dtype=int)
         for day in range(test_y.shape[0]):
             #np.savetxt(f'../sample/mcdropout_day{day}.csv', mc_drop_list[day], delimiter=',')
-            #top_n_list, top_n_list_index = get_top_n_stock(self.top_num, mc_drop_list[day])
-            #top_n_list_index_test_days[day,:] = top_n_list_index
+            top_n_list, top_n_list_index = get_top_n_stock(self.top_num, mc_drop_list[day])
+            top_n_list_index_test_days[day,:] = top_n_list_index
             if self.top_num != 1:
-                #std_list, sigma = cal_std_cov(self.top_num, mc_drop_list[day], top_n_list, top_n_list_index)               
-                #day_weight[day,:] = model_const(self.top_num, top_n_list, std_list, sigma)
-                top_n_list_index_test_days[day,:], day_weight[day,:] = greedy(self.top_num, mc_drop_list[day], self.mcdrop_num)
-                #day_weight[day,:] = ( 1 / self.top_num )
+                day_weight[day,:] = ( 1 / self.top_num )
             else:
-                var_list = np.var(mc_drop_list[day],axis=1)
-                top_n_list_index_test_days[day,:] = np.argmin(var_list)
                 day_weight[day,:] = 1
         evaluate_portfolio(test_y_pred, test_y, top_n_list_index_test_days, day_weight, fname=args.f)
         np.savetxt(f'./test5/{args.e}_{args.m}_{args.f}_top_n_index.csv', top_n_list_index_test_days, delimiter=',')
