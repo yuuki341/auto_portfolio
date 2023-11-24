@@ -40,7 +40,6 @@ def ARIMA(gt_data,test_index):
     print('MAE:')
     print(mean_absolute_error(test, preds)) 
     print('MAPE(%):')
-    #print(mean(abs(test - preds)/test) *100)
     # 予測と実測の比較（グラフ）
     x_axis = np.arange(preds.shape[0])
     plt.plot(x_axis,test,label="actual",color='r') 
@@ -56,6 +55,3 @@ if __name__ == "__main__":
     data = np.loadtxt("gt_data.csv", delimiter=",")
     print(data.shape)
     ARIMA(data[16], test_index)
-    #a = np.array([1,2,3,2,5,8])
-    #b = np.array([1,2,3,4,5,5])
-    #print(np.linalg.norm(a-b)**2)

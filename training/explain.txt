@@ -40,3 +40,6 @@ greedy_top5_fropnum10000 : 4893.662820100784
 greedy_top5_fropnum100000 : 28999.680920124054
 
 greedy_top5_fropnum10000_NYSE : 7401
+
+seeds5:5788.654810667038
+num10000 × seeds55:14624

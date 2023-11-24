@@ -6,6 +6,7 @@ import random
 from gurobipy import Model, GRB
 from scipy.stats import norm
 import csv
+from gurobipy import *
 
 def evaluate(prediction, ground_truth, mask, report=False):
     assert ground_truth.shape == prediction.shape, 'shape mis-match'
@@ -123,6 +124,16 @@ def get_top_n_stock(num,stock_sample):
         top_n_list[i] = mean_revenue_list[max_n]
     return top_n_list, top_n_list_index
 
+def get_top_n_stock_nomc(num,stock_sample):
+    mean_revenue_sort_index = np.argsort(stock_sample)
+    top_n_list = np.zeros(num,dtype=float)
+    top_n_list_index = np.zeros(num,dtype=int)
+    for i in range(num):
+        max_n = mean_revenue_sort_index[-1 * (i + 1)]
+        top_n_list_index[i] = max_n
+        top_n_list[i] = stock_sample[max_n]
+    return top_n_list, top_n_list_index
+
 """
 標準偏差と共分散を計算
 """
@@ -156,7 +167,7 @@ def model_const(num, max_n_list, std_list, sigma):
 def evaluate_portfolio(prediction, ground_truth, topn, topn_weight,fname, report=False):
     bt_longn = 0
     #テスト日分の評価
-    with open(f'./test5/{fname}.csv', 'w') as f:
+    with open(f'./test12/{fname}_data.csv', 'w') as f:
         writer = csv.writer(f)
         for i in range(prediction.shape[0]):
             # back testing on top n
@@ -181,6 +192,88 @@ def greedy_optimization(alpha, weight_num,sigma,r):
     model.setObjective(portfolio_risk, GRB.MINIMIZE)
     model.addConstr( x.sum() == 1, 'budget')
     model.addConstr( r @ x >= alpha)
+    model.__data = x
+    return model
+
+def greedy_optimization_rev(alpha, weight_num,sigma,r):
+    """
+        - sigma[i,j]: covariance of item i and j
+        - r[i]: revenue of item i
+        Returns a model, ready to be solved.
+    """
+    model = Model("portfolio")
+    x = model.addMVar(weight_num)
+    portfolio_risk = x @ r
+    model.setObjective(portfolio_risk, GRB.MAXIMIZE)
+    model.addConstr( x.sum() == 1, 'budget')
+    model.addConstr( x @ sigma @ x <= alpha)
+    model.__data = x
+    return model
+
+
+def cardinality_constrained_optimization(alpha, weight_num,sigma,r):
+    """
+        - sigma[i,j]: covariance of item i and j
+        - r[i]: revenue of item i
+        Returns a model, ready to be solved.
+    """
+    model = Model("portfolio")
+    x = model.addMVar((r.shape[0],))
+    z = {}
+    for i in range(r.shape[0]):
+        z[i] = model.addVar(vtype = GRB.BINARY)
+    portfolio_risk = x @ sigma @ x
+    model.setObjective(portfolio_risk, GRB.MINIMIZE)
+    model.addConstr( r @ x >= alpha)
+    model.addConstr(quicksum(z[i] for i in range(r.shape[0])) == weight_num)
+    for i in range(r.shape[0]):
+        model.addConstr( x[i] <= z[i])
+        model.addConstr( 0 <= x[i])
+    model.addConstr( x.sum() == 1, 'budget')
+    model.__data = x
+    return model
+
+def cardinality_constrained_optimization_rev(alpha, weight_num,sigma,r):
+    """
+        - sigma[i,j]: covariance of item i and j
+        - r[i]: revenue of item i
+        Returns a model, ready to be solved.
+    """
+    model = Model("portfolio")
+    x = model.addMVar((r.shape[0],))
+    z = {}
+    for i in range(r.shape[0]):
+        z[i] = model.addVar(vtype = GRB.BINARY)
+    portfolio_risk = x @ r
+    model.setObjective(portfolio_risk, GRB.MAXIMIZE)
+    model.addConstr( x @ sigma @ x <= alpha)
+    model.addConstr(quicksum(z[i] for i in range(r.shape[0])) == weight_num)
+    for i in range(r.shape[0]):
+        model.addConstr( x[i] <= z[i])
+        model.addConstr( 0 <= x[i])
+    model.addConstr( x.sum() == 1, 'budget')
+    model.__data = x
+    return model
+
+
+def cardinality_constrained_optimization_rev_multiobject(alpha, weight_num,sigma,r):
+    """
+        - sigma[i,j]: covariance of item i and j
+        - r[i]: revenue of item i
+        Returns a model, ready to be solved.
+    """
+    model = Model("portfolio")
+    x = model.addMVar((r.shape[0],))
+    z = {}
+    for i in range(r.shape[0]):
+        z[i] = model.addVar(vtype = GRB.BINARY)
+    portfolio_risk = x @ r - alpha* (x @ sigma @ x)
+    model.setObjective(portfolio_risk, GRB.MAXIMIZE)
+    model.addConstr(quicksum(z[i] for i in range(r.shape[0])) == weight_num)
+    for i in range(r.shape[0]):
+        model.addConstr( x[i] <= z[i])
+        model.addConstr( 0 <= x[i])
+    model.addConstr( x.sum() == 1, 'budget')
     model.__data = x
     return model
 
@@ -231,3 +324,110 @@ def greedy(weight_max, mc_drop_list_day, mc_drop_num):
                 optimal_min = model.ObjVal
         index_list.append(index_min)
     return index_list, model_weight
+
+
+def greedy_rev(weight_max, mc_drop_list_day, mc_drop_num):
+    index_list = []
+    optimal_min = float('inf')
+    
+    #平均予測収益のベクトル
+    mean_list = np.mean(mc_drop_list_day,axis=1)
+    #予測収益の分散のベクトル
+    var_list = np.var(mc_drop_list_day,axis=1)
+    #二次計画問題の基準
+    standard = np.mean(var_list)
+    #分散が最小なものを追加
+    stock_list_index = np.where(var_list < standard)[0]
+    
+    return_max = -float('inf')
+    for i in stock_list_index:
+        if return_max > mean_list[i]:
+            return_max = mean_list[i]
+            return_max_index = i
+    index_list.append(return_max_index)
+    
+    for weight_num in range(2, weight_max + 1):
+        model_weight = np.zeros(weight_num, dtype=float)
+        index_min = 0
+        for i in range(mean_list.shape[0]):
+            if i in index_list:
+                continue
+            stock_sample_list_day = np.zeros((weight_num, mc_drop_num)) 
+            r = np.zeros(weight_num)
+            for j in range(weight_num - 1):
+                stock_sample_list_day[j,:] = mc_drop_list_day[index_list[j],:]
+                r[j] = mean_list[index_list[j]]
+            stock_sample_list_day[-1,:] = mc_drop_list_day[i,:]
+            sigma = np.cov(stock_sample_list_day)
+            r[-1] = mean_list[i] 
+           
+            model = greedy_optimization_rev(standard, weight_num, sigma, r)
+            model.optimize()
+            x = model.__data
+            if optimal_min > model.ObjVal:
+                for j in range(weight_num):
+                    model_weight[j] = x[j].X
+                index_min = i
+                optimal_min = model.ObjVal
+        index_list.append(index_min)
+    return index_list, model_weight
+
+def cardinary_constrained(weight_max, mc_drop_list_day, mc_drop_num):
+    index_list = []
+    
+    #平均予測収益のベクトル
+    mean_list = np.mean(mc_drop_list_day,axis=1)
+    #予測収益の分散のベクトル
+    #var_list = np.var(mc_drop_list_day,axis=1)
+    #二次計画問題の基準
+    standard = mean_list[mean_list>0].mean()
+    sigma = np.cov(mc_drop_list_day)
+    print(mean_list.shape,sigma.shape,standard.shape)
+
+    model = cardinality_constrained_optimization(standard, weight_max,sigma,mean_list)
+    model.optimize()
+    x = model.__data
+    index_list = np.where(x.X > 0)
+    print(index_list[0], x.X[x.X>0])
+    
+    return index_list[0], x.X[x.X>0]
+
+def cardinary_constrained_rev(weight_max, mc_drop_list_day, mc_drop_num):
+    index_list = []
+    
+    #平均予測収益のベクトル
+    mean_list = np.mean(mc_drop_list_day,axis=1)
+    #予測収益の分散のベクトル
+    var_list = np.var(mc_drop_list_day,axis=1)
+    #二次計画問題の基準
+    standard = np.mean(var_list) / weight_max
+    sigma = np.cov(mc_drop_list_day)
+    print(mean_list.shape,sigma.shape,standard.shape)
+
+    model = cardinality_constrained_optimization_rev(standard, weight_max,sigma,mean_list)
+    model.optimize()
+    x = model.__data
+    index_list = np.where(x.X > 0)
+    print(index_list[0], x.X[x.X>0])
+    
+    return index_list[0], x.X[x.X>0]
+
+def cardinary_constrained_rev_multiobj(weight_max, mc_drop_list_day, mc_drop_num):
+    index_list = []
+    
+    #平均予測収益のベクトル
+    mean_list = np.mean(mc_drop_list_day,axis=1)
+    #予測収益の分散のベクトル
+    var_list = np.var(mc_drop_list_day,axis=1)
+    #二次計画問題の基準
+    standard = 0.5
+    sigma = np.cov(mc_drop_list_day)
+
+    model = cardinality_constrained_optimization_rev_multiobject(standard, weight_max,sigma,mean_list)
+    model.optimize()
+    x = model.__data
+    index_list = np.where(x.X > 0)
+    print(index_list[0], x.X[x.X>0])
+    
+    return index_list[0], x.X[x.X>0]
+    

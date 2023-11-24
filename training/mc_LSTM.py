@@ -122,29 +122,34 @@ class mcLSTM:
         model.compile(loss='mse', optimizer=Adam(lr=self.parameters['lr']), metrics = ['mse'])
         model.summary()
         #tf.keras.utils.plot_model(model, show_shapes=True)
-
+        """
         #モデルの訓練・検証
         hist = model.fit(train_x, train_y, epochs=self.epochs, validation_data=(val_x, val_y), batch_size=self.batch_size,verbose=0)
 
         # 損失値(Loss)の遷移
+        plt.rcParams["font.size"] = 14
         plt.plot(hist.history['loss'], label="train set")
         plt.plot(hist.history['val_loss'], label="val set")
         plt.title('model loss')
-        plt.xlabel('epoch')
-        plt.ylabel('loss')
+        plt.xlabel('epochs')
+        plt.ylabel('MSE loss')
         #plt.ylim( 0.0005, 0.0006)
         #plt.ylim( 0, 0.05)
         plt.legend()
         #fig_name = f"result/{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.png"
         #fig_name = f"search/fig{args.m}_layer4_e{args.e}.png"
-        fig_name = f"test5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_fig.png"
+        #fig_name = f"test9/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_fig.png"
+        fig_name = f"{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_fig.png"
+        plt.tight_layout()
         plt.savefig(fig_name)
+        
         val_graph = [np.min(hist.history['val_loss']),np.argmin(hist.history['val_loss'])]
-        txt_name = f"test5/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.txt"
+        txt_name = f"test9/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.txt"
         np.savetxt(txt_name, val_graph, delimiter=',')
-
+        """
         mc_drop_list = np.zeros([test_y.shape[0], len(self.tickers), self.mcdrop_num],dtype=float)
         MSE_list = np.zeros([self.mcdrop_num])
+        
         #テストデータでの予測
         """
         with Pool() as pool:
@@ -157,6 +162,7 @@ class mcLSTM:
             print(MSE)
             mc_drop_list[:,:,num] = test_y_pred
             print(num,self.mcdrop_num)
+        """
         #with open(f"result/MSE_{args.f}.csv", 'a') as f_handle:
         #    np.savetxt(f_handle, [np.mean(MSE_list)])
         day_weight = np.zeros([test_y.shape[0], self.top_num],dtype=float)
@@ -175,8 +181,9 @@ class mcLSTM:
                 top_n_list_index_test_days[day,:] = np.argmin(var_list)
                 day_weight[day,:] = 1
         evaluate_portfolio(test_y_pred, test_y, top_n_list_index_test_days, day_weight, fname=args.f)
-        np.savetxt(f'./test5/{args.e}_{args.m}_{args.f}_top_n_index.csv', top_n_list_index_test_days, delimiter=',')
-        np.savetxt(f'./test5/{args.e}_{args.m}_{args.f}_top_n_weight.csv', day_weight, delimiter=',')
+        np.savetxt(f'./test9/{args.f}_seed{args.seed}_epoch{args.e}_{args.m}_index.csv', top_n_list_index_test_days, delimiter=',')
+        np.savetxt(f'./test9/{args.f}_seed{args.seed}_epoch{args.e}_{args.f}_weight.csv', day_weight, delimiter=',')
+        """
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

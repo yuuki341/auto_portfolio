@@ -171,8 +171,8 @@ class mcLSTM:
             else:
                 day_weight[day,:] = 1
         evaluate_portfolio(test_y_pred, test_y, top_n_list_index_test_days, day_weight, fname=args.f)
-        np.savetxt(f'./test5/{args.e}_{args.m}_{args.f}_top_n_index.csv', top_n_list_index_test_days, delimiter=',')
-        np.savetxt(f'./test5/{args.e}_{args.m}_{args.f}_top_n_weight.csv', day_weight, delimiter=',')
+        np.savetxt(f'./test5/{args.f}_seed{args.seed}_epoch{args.e}_{args.m}_index.csv', top_n_list_index_test_days, delimiter=',')
+        np.savetxt(f'./test5/{args.f}_seed{args.seed}_epoch{args.e}_{args.m}_weight.csv', day_weight, delimiter=',')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

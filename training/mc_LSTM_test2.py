@@ -28,7 +28,7 @@ class mcLSTM:
         self.tickers = np.genfromtxt(os.path.join(data_path, '..', tickers_fname),
                                      dtype=str, delimiter='\t', skip_header=False)
         ### DEBUG
-        self.tickers = self.tickers[0: 5]
+        #self.tickers = self.tickers[0: 5]
         print('#tickers selected:', len(self.tickers))
         #self.eod_data(1026,1245,5):(tickers,日数,特徴量) 全データ
         #self.mask_data(1026,1245):(tickers,日数) 株価欠けているデータ
@@ -63,6 +63,7 @@ class mcLSTM:
         #データの整形
         #train,val,test = np.split(self.gt_data,[self.valid_index,self.test_index],axis=1)
         train,val,test = np.split(self.eod_data[:,:,-1],[self.valid_index,self.test_index],axis=1)
+        
         train_x = np.zeros(
             [len(train[0]) - self.parameters['seq'], len(self.tickers) , self.parameters['seq']],
             dtype=float)
@@ -98,21 +99,16 @@ class mcLSTM:
         train_x = train_x[p]
         train_y = train_y[p]
 
-        #callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=50)
-        callback = keras.callbacks.ModelCheckpoint("test14/cp.ckpt", monitor='val_loss', verbose=1, 
-        save_best_only=True, save_weights_only=True, mode='auto', period=1)
-        
         #モデルの作成
         inputs = Input(shape=(self.parameters['seq'], len(self.tickers)))
         lstm = LSTM(self.parameters['unit'], return_sequences=True)(inputs)
         lstm = Dropout(self.mcdrop_p)(lstm,training=True)
+        """
         lstm = LSTM(self.parameters['unit'], return_sequences=True)(lstm)
         lstm = Dropout(self.mcdrop_p)(lstm,training=True)
         """
-        
         lstm = LSTM(self.parameters['unit'], return_sequences=True)(lstm)
         lstm = Dropout(self.mcdrop_p)(lstm,training=True)
-        """
         lstm = LSTM(self.parameters['unit'], return_sequences=False)(lstm)
         drop = Dropout(self.mcdrop_p)(lstm,training=True)
         dense = Dense(len(self.tickers))(drop)
@@ -121,26 +117,56 @@ class mcLSTM:
         model.summary()
         #tf.keras.utils.plot_model(model, show_shapes=True)
 
+        train_loss = []
+        val_loss = []
         #モデルの訓練・検証
-        hist = model.fit(train_x, train_y, 
-            epochs=self.epochs, 
-            validation_data=(val_x, val_y), 
-            batch_size=self.batch_size,
-            verbose=1,
-            callbacks=[callback]
-            )
+        #訓練データ反復回数
+        train_epoch = 100
+        train_pred_list = np.zeros((train_y.shape[0], len(self.tickers), train_epoch))
+        val_pred_list = np.zeros((val_y.shape[0], len(self.tickers), train_epoch))
+        print(train_pred_list.shape)
+        print(val_pred_list.shape)
+
+        end_num = 0
+        end_limit = 10
+        train_y_pred = model.predict(train_x)
+        for epo in range(1,self.epochs+1):
+            callback = keras.callbacks.ModelCheckpoint(f"test14/{epo}_cp.ckpt", monitor='val_loss', verbose=1, 
+            save_best_only=False, save_weights_only=True, mode='auto', period=1)
+
+            hist = model.fit(train_x, train_y, 
+            epochs=1, validation_data=(val_x, val_y), 
+            batch_size=self.batch_size, verbose=0,
+            callbacks=[callback])
+            
+            for num_epo in range(train_epoch):
+                train_pred_list[:,:,num_epo] = model.predict(train_x)
+                val_pred_list[:,:,num_epo] = model.predict(val_x)
+                print(num_epo, train_epoch, epo, self.epochs+1)
+
+            MSE_train = mean_squared_error(np.mean(train_pred_list,axis = 2), train_y)
+            MSE_val = mean_squared_error(np.mean(val_pred_list, axis = 2), val_y)
+            
+            train_loss.append(MSE_train)
+            val_loss.append(MSE_val)
+            if min(val_loss) < MSE_val:
+                end_num += 1
+                if end_num > end_limit:
+                    break
+            else:
+                end_num = 0
+
+                
 
         # 損失値(Loss)の遷移
-        plt.plot(hist.history['loss'], label="train set")
-        plt.plot(hist.history['val_loss'], label="val set")
+        plt.plot(train_loss, label="train set")
+        plt.plot(val_loss, label="val set")
         plt.title('model loss')
         plt.xlabel('epoch')
         plt.ylabel('loss')
         #plt.ylim( 0.0005, 0.0006)
-        #plt.ylim( 0.00, 0.01)
+        #plt.ylim( 0, 0.05)
         plt.legend()
-        #fig_name = f"result/{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}.png"
-        #fig_name = f"search/fig{args.m}_layer4_e{args.e}.png"
         fig_name = f"test14/{args.e}_{args.m}_dropr{args.drop_ratio}_unit{args.u}_{args.f}_{args.l}.png"
         plt.savefig(fig_name)
         val_graph = [np.min(hist.history['val_loss']),np.argmin(hist.history['val_loss'])]
@@ -174,7 +200,7 @@ if __name__ == '__main__':
     parser.add_argument('-b',help='number of batchsize',
                         default=50,type=int)
     parser.add_argument('-e',help='number of epochs',
-                        default=5,type=int)
+                        default=20,type=int)
     parser.add_argument('--seed',help='seed',
                         default=0,type = int)
 
